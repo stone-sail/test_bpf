@@ -2,7 +2,84 @@
 
 每个表按"挂载类型、类别（子系统）、事件名、描述、例子、头文件"整理。总览见 [bpf_known.md](bpf_known.md)。数据来自测试节点（内核 4.18.0-193.el8.jd_001.x86_64）和仓库内 libbpf，只代表该内核。
 
-## perf_event
+## 两种使用 perf 事件的方式
+
+perf 事件有两种用法：一种是直接读取内核 perf 写出的样本（下称"纯 perf"），另一种是把 BPF 程序挂到 perf 事件上（下称"BPF + perf"）。两者都用 `perf_event_open()` 创建事件，**区别在于事件触发之后由谁采集数据**。
+
+### 数据流
+
+纯 perf：
+
+```
+事件触发（计数溢出 / tracepoint 命中 / kprobe 命中）
+  → 内核 perf 子系统按 attr.sample_type 采集，写成固定格式的 PERF_RECORD_SAMPLE
+  → 写入该 perf fd 的 mmap ring buffer
+  → 用户态按 data_head / data_tail 读取并解析，再做过滤
+```
+
+BPF + perf：
+
+```
+事件触发
+  → 内核运行挂在该 perf fd 上的 BPF 程序（SEC("perf_event") / SEC("tracepoint") / SEC("kprobe")）
+  → 程序在内核里过滤，并自行采集数据（bpf_get_stack、复制用户栈、读内核状态等）
+  → 写入 BPF ringbuf 或 PERF_EVENT_ARRAY，按程序自定义的结构
+  → 用户态通过 libbpf（ring_buffer__poll / perf_buffer__poll）读取
+```
+
+### 对比
+
+| | 纯 perf | BPF + perf |
+|---|---|---|
+| perf 事件的作用 | 触发，并由内核按固定格式采样 | 只触发，样本由 BPF 程序采集 |
+| 谁采数据 | 内核 perf 子系统 | 自己写的 BPF 程序（在内核里运行） |
+| 是否加载内核代码 | 否 | 是，需要加载 BPF 程序并通过 verifier |
+| `attr.sample_type` | 必须设置，决定样本里有哪些字段 | 不需要；样本由 BPF 程序决定 |
+| fd 的 mmap | 需要，用来读样本 | 不需要；用 `bpf_program__attach_perf_event()` 等挂载 |
+| 能采的内容 | 只能选 `PERF_SAMPLE_*` 提供的字段 | 可自定义，能读内核内部状态（`bpf_probe_read_kernel` 等） |
+| 数据格式 | 内核规定，按固定顺序排列 | 程序自定义的结构体 |
+| 过滤 pid / comm | 用户态过滤，内核仍会采集、复制所有样本 | 内核里过滤，不匹配的事件几乎没有开销 |
+| 缩小范围 | 按 cgroup 采样（`PERF_FLAG_PID_CGROUP`） | BPF 程序内按任意条件判断 |
+| pid 的 namespace | 打开事件的进程所在的 namespace，容器内按 pid 过滤正确 | `bpf_get_current_pid_tgid()` 返回宿主机（init）namespace 的 pid |
+| 用户态读取 | 自己解析 ring buffer，自己处理绕回和 `data_tail` 写回 | libbpf 处理 |
+| 内核要求 | 只需要 perf_events（`CONFIG_PERF_EVENTS`），老内核也能用 | 需要对应的 BPF 程序类型、辅助函数和 map 类型支持 |
+
+### 纯 perf 的 `sample_type`
+
+`sample_type` 是 `struct perf_event_attr` 中的位掩码，决定每个 `PERF_RECORD_SAMPLE` 包含哪些字段。样本里没有字段名，字段按内核规定的固定顺序排列，只包含设置了的字段，解析时必须按同样的顺序读取（完整顺序见 `man 2 perf_event_open`）。
+
+| 标志 | 样本中的字段 | 用途 |
+|---|---|---|
+| `PERF_SAMPLE_TID` | `u32 pid, tid` | 按进程过滤、取进程名 |
+| `PERF_SAMPLE_TIME` | `u64 time` | 时间戳 |
+| `PERF_SAMPLE_CPU` | `u32 cpu, res` | 所在 CPU |
+| `PERF_SAMPLE_PERIOD` | `u64 period` | 按周期采样时作为样本权重 |
+| `PERF_SAMPLE_CALLCHAIN` | `u64 nr, ips[nr]` | 内核调用链和帧指针用户调用链，中间以标记值分隔 |
+| `PERF_SAMPLE_REGS_USER` | `u64 abi, regs[...]` | 用户态寄存器，作为 DWARF 展开起点；配合 `attr.sample_regs_user` |
+| `PERF_SAMPLE_STACK_USER` | `u64 size, data[size], u64 dyn_size` | 用户栈原始内存；配合 `attr.sample_stack_user`（上限略小于 64 KB） |
+| `PERF_SAMPLE_RAW` | `u32 size, data[size]` | tracepoint 的原始字段 |
+
+只要内核栈时，可以只用 TID、TIME、CPU、CALLCHAIN，并设置 `exclude_callchain_user = 1`、`sample_regs_user = 0`、`sample_stack_user = 0`，样本会从几十 KB 降到几百字节。
+
+### tracepoint 和 kprobe 也是同样的模式
+
+| 触发点 | 纯 perf | BPF + perf |
+|---|---|---|
+| 定时采样 | `PERF_TYPE_SOFTWARE` / `PERF_COUNT_SW_CPU_CLOCK`，按频率或周期 | 同一个事件，`bpf_program__attach_perf_event()` 挂 `SEC("perf_event")` 程序 |
+| tracepoint | `PERF_TYPE_TRACEPOINT`，`config` 为 `/sys/kernel/tracing/events/<类别>/<事件>/id`，`sample_period = 1` | `bpf_program__attach_tracepoint()` 挂 `SEC("tracepoint")` 程序；libbpf 底层同样打开 tracepoint perf 事件再绑定程序 |
+| kprobe | kprobe PMU（4.17 起）：`type` 读自 `/sys/bus/event_source/devices/kprobe/type`，函数名放在 `config1` | `bpf_program__attach_kprobe()` 挂 `SEC("kprobe")` 程序 |
+
+tracepoint 和 kprobe 每次命中都会触发，频率远高于定时采样，两种方式的差距也更大：
+- 纯 perf 下，不需要的事件内核仍会采集并复制栈，再由用户态丢弃，开销大，应当用 cgroup 缩小范围。
+- BPF + perf 下，在程序开头判断条件后直接返回，几乎没有开销。
+
+### 怎么选
+
+- 内核支持 BPF 时优先用 BPF + perf：能在源头过滤，能采集自定义数据，开销更低。
+- 内核太老、BPF 被禁用或没有加载 BPF 的权限时用纯 perf：只依赖 perf_events，兼容性最好。
+- 两者都受 `perf_event_paranoid` 限制，全机采样通常需要 root 或 `CAP_PERFMON`（5.8 起）。
+
+## perf_event 事件列表
 
 - 写法：BPF 端固定为 `SEC("perf_event")`。具体事件由用户态 `perf_event_open()` 的 `attr.type` 和 `attr.config` 决定，再把 BPF 程序挂到该 perf 事件上（libbpf 的 `bpf_program__attach_perf_event()`）。
 - 上下文：`struct bpf_perf_event_data *ctx`。

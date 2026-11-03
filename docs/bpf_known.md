@@ -13,7 +13,7 @@
   - [队列、栈与其他](#队列栈与其他)
 - 事件与挂载点
   - [概览（事件与挂载点）](#事件与程序挂载点sec-前缀)
-  - 详细列表：[tracepoint.md](tracepoint.md)、[probe.md](probe.md)、[perf.md](perf.md)、[other.md](other.md)
+  - 详细列表：[tracepoint.md](tracepoint.md)、[probe.md](probe.md)、[perf.md](perf.md)（含纯 perf 与 BPF + perf 的区别）、[other.md](other.md)
 - [时间相关辅助函数](#时间相关辅助函数)
 - [execsnoop 的程序接口](#execsnoop-的程序接口)
 - [版本注意](#版本注意)
@@ -150,7 +150,7 @@ struct {
 |---|---|---|
 | [tracepoint.md](tracepoint.md) | `tracepoint` / `tp`、`raw_tracepoint` / `raw_tp` | 节点上全部 tracepoint（类别、事件名、ID、字段）、代码写法（内置事件与模块事件）、raw_tracepoint 按类别的事件 |
 | [probe.md](probe.md) | `kprobe`、`kretprobe`、`ksyscall`、`kretsyscall`、`kprobe.multi`、`uprobe`、`uretprobe`、`usdt` | 系统调用入口函数全表、按来源（内核本体/各模块）统计的可挂载函数、uprobe/usdt 写法 |
-| [perf.md](perf.md) | `perf_event` | 通用硬件事件、软件事件、节点上的 PMU 事件 |
+| [perf.md](perf.md) | `perf_event` | 纯 perf 与 BPF + perf 两种用法的区别（数据流、`sample_type`、tracepoint/kprobe 对比、怎么选），通用硬件事件、软件事件、节点上的 PMU 事件 |
 | [other.md](other.md) | `fentry`、`fexit`、`fmod_ret`、`fsession`、`freplace`、`lsm`、`lsm_cgroup`、`tp_btf`、`iter`、`struct_ops`、`xdp`、`tc`/`tcx`、`cgroup_skb`、`cgroup/*`、`sockops`、`sk_msg`、`sk_skb`、`sk_lookup`、`sk_reuseport`、`syscall` 等 | 依赖 BTF 的类型（本节点不可用）、网络与 cgroup 等固定挂载点、libbpf `section_defs` 全表（110 条） |
 
 Map 类型、时间相关辅助函数和版本注意都在本文件中。
