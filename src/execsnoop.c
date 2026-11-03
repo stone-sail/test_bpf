@@ -15,12 +15,20 @@ static void on_sig(int sig)
         stop = 1;
 }
 
-static int handle_event(void *ctx, void *data, size_t len)
+/* perf 缓冲区的采样回调返回 void，丢包回调单独处理。 */
+static void handle_event(void *ctx, int cpu, void *data, __u32 len)
 {
         const struct event *e = data;
 
+        if (len < sizeof(*e))
+                return;
         printf("%-8d %-8d %-16s %s\n", e->pid, e->ppid, e->comm, e->filename);
-        return 0;
+}
+
+static void handle_lost(void *ctx, int cpu, __u64 cnt)
+{
+        fprintf(stderr, "lost %llu events on CPU %d\n",
+                (unsigned long long)cnt, cpu);
 }
 
 #define SYS_BTF "/sys/kernel/btf/vmlinux"
@@ -76,12 +84,13 @@ static void warn_affected_kernel(void)
 int main(int argc, char **argv)
 {
         const char *btf_arg = argc > 1 ? argv[1] : NULL;
+        // 取命令行的第一个参数作为 BTF 文件路径。没有参数时为 NULL，表示用默认的 /sys/kernel/btf/vmlinux。
         struct bpf_object_open_opts opts = {
                 .sz = sizeof(opts),
                 .btf_custom_path = btf_arg,
         };
         struct execsnoop_bpf *skel;
-        struct ring_buffer *rb = NULL;
+        struct perf_buffer *pb = NULL;
         int err;
 
         if (argc > 2) {
@@ -91,29 +100,31 @@ int main(int argc, char **argv)
         if (check_btf(btf_arg, argv[0]) != 0)
                 return 1;
         warn_affected_kernel();
-
+        // 1. 打开
         skel = execsnoop_bpf__open_opts(&opts);
         if (!skel) {
                 fprintf(stderr, "failed to open BPF skeleton\n");
                 return 1;
         }
-
+        // 2. load
         err = execsnoop_bpf__load(skel);
         if (err) {
                 fprintf(stderr, "failed to load BPF skeleton: %d\n", err);
                 goto out;
         }
-
+        // 3. attach
         err = execsnoop_bpf__attach(skel);
         if (err) {
                 fprintf(stderr, "failed to attach: %d\n", err);
                 goto out;
         }
 
-        rb = ring_buffer__new(bpf_map__fd(skel->maps.events), handle_event, NULL, NULL);
-        if (!rb) {
+        /* 每个 CPU 64 页（256 KiB）的缓冲区。 */
+        pb = perf_buffer__new(bpf_map__fd(skel->maps.events), 64,
+                              handle_event, handle_lost, NULL, NULL);
+        if (!pb) {
                 err = -1;
-                fprintf(stderr, "failed to create ring buffer\n");
+                fprintf(stderr, "failed to create perf buffer\n");
                 goto out;
         }
 
@@ -122,7 +133,7 @@ int main(int argc, char **argv)
 
         printf("%-8s %-8s %-16s %s\n", "PID", "PPID", "COMM", "FILENAME");
         while (!stop) {
-                err = ring_buffer__poll(rb, 100);
+                err = perf_buffer__poll(pb, 100);
                 if (err < 0 && err != -EINTR) {
                         fprintf(stderr, "poll error: %d\n", err);
                         break;
@@ -131,7 +142,8 @@ int main(int argc, char **argv)
         }
 
 out:
-        ring_buffer__free(rb);
+        perf_buffer__free(pb);
+        // 4. destroy
         execsnoop_bpf__destroy(skel);
         return err != 0;
 }
