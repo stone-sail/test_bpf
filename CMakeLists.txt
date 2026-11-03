@@ -159,8 +159,12 @@ endif()
 # The CentOS 7 (3.10) kernel headers predate NFPROTO_NETDEV, which bpftool needs.
 # Define it only when the headers lack it: on newer headers it is an enum value,
 # and a -D macro for it breaks the enum.
-include(CheckSymbolExists)
-check_symbol_exists(NFPROTO_NETDEV "linux/netfilter.h" HAVE_NFPROTO_NETDEV)
+include(CheckCSourceCompiles)
+# Compile a use of the constant (not its address, which an enumerator lacks).
+check_c_source_compiles("
+#include <linux/netfilter.h>
+int main(void) { int v = NFPROTO_NETDEV; return v; }"
+  HAVE_NFPROTO_NETDEV)
 if(HAVE_NFPROTO_NETDEV)
   set(BPFTOOL_EXTRA_CFLAGS "")
 else()
