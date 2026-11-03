@@ -1,0 +1,48 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build execsnoop (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout (with libbpf and bpftool submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake make clang-18 libelf-dev zlib1g-dev
+
+      - name: Show tool versions
+        run: |
+          cmake --version | head -1
+          clang-18 --version | head -1
+          gcc --version | head -1
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_C_COMPILER=clang-18
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Install into a staging prefix
+        run: cmake --install build --prefix "$PWD/dist/usr/local"
+
+      - name: Upload execsnoop
+        uses: actions/upload-artifact@v4
+        with:
+          name: execsnoop-ubuntu-24.04-x86_64
+          path: dist/usr/local
+          if-no-files-found: error
