@@ -46,3 +46,39 @@ jobs:
           name: execsnoop-ubuntu-24.04-x86_64
           path: dist/usr/local
           if-no-files-found: error
+
+  release:
+    name: publish GitHub release
+    # Only for version tags; branch pushes and manual runs stop after build.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download the build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: execsnoop-ubuntu-24.04-x86_64
+          path: pkg
+
+      - name: Package and checksum
+        run: |
+          set -euo pipefail
+          NAME="execsnoop-${GITHUB_REF_NAME}-ubuntu-24.04-x86_64"
+          tar -C pkg -czf "${NAME}.tar.gz" .
+          sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256"
+          ls -l "${NAME}".tar.gz*
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          FILES=(execsnoop-"${GITHUB_REF_NAME}"-ubuntu-24.04-x86_64.tar.gz*)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${FILES[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${FILES[@]}" \
+              --title "execsnoop ${GITHUB_REF_NAME}" --generate-notes
+          fi
