@@ -156,13 +156,23 @@ else()
   set(BPFTOOL_LLVM_VERSION "")
 endif()
 
-# -DNFPROTO_NETDEV=5: the CentOS 7 (3.10) kernel headers predate that constant.
+# The CentOS 7 (3.10) kernel headers predate NFPROTO_NETDEV, which bpftool needs.
+# Define it only when the headers lack it: on newer headers it is an enum value,
+# and a -D macro for it breaks the enum.
+include(CheckSymbolExists)
+check_symbol_exists(NFPROTO_NETDEV "linux/netfilter.h" HAVE_NFPROTO_NETDEV)
+if(HAVE_NFPROTO_NETDEV)
+  set(BPFTOOL_EXTRA_CFLAGS "")
+else()
+  set(BPFTOOL_EXTRA_CFLAGS "-DNFPROTO_NETDEV=5")
+endif()
+
 add_custom_command(
   OUTPUT ${BPFTOOL_DIR}/bpftool
   COMMAND ${CMAKE_COMMAND} -E make_directory ${BPFTOOL_DIR}
   COMMAND ${MAKE_PROG} -C ${BPFTOOL_SRC} OUTPUT=${BPFTOOL_DIR}/
           LLVM_VERSION=${BPFTOOL_LLVM_VERSION}
-          EXTRA_CFLAGS=-DNFPROTO_NETDEV=5
+          EXTRA_CFLAGS=${BPFTOOL_EXTRA_CFLAGS}
   COMMENT "Building bpftool")
 add_custom_target(bpftool_build DEPENDS ${BPFTOOL_DIR}/bpftool)
 
