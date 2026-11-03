@@ -186,8 +186,8 @@ add_custom_target(bpftool_build DEPENDS ${BPFTOOL_DIR}/bpftool)
 add_custom_command(
   OUTPUT ${OBJ_DIR}/vmlinux.h
   COMMAND ${CMAKE_COMMAND} -E make_directory ${OBJ_DIR}
-  COMMAND ${CMAKE_COMMAND} -E copy ${SRC_DIR}/vmlinux_6.18.h ${OBJ_DIR}/vmlinux.h
-  DEPENDS ${SRC_DIR}/vmlinux_6.18.h
+  COMMAND ${CMAKE_COMMAND} -E copy ${INC_DIR}/vmlinux_6.18.h ${OBJ_DIR}/vmlinux.h
+  DEPENDS ${INC_DIR}/vmlinux_6.18.h
   COMMENT "Copying vmlinux.h")
 add_custom_target(vmlinux_h DEPENDS ${OBJ_DIR}/vmlinux.h)
 

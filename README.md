@@ -13,8 +13,9 @@ src/
   execsnoop.bpf.c      BPF program (tracepoint, ring buffer, CO-RE read of parent tgid)
   execsnoop.c          user-space loader (open/load/attach, ring buffer polling)
   execsnoop.h          event structure shared by both
-  vmlinux_6.18.h       bundled kernel type definitions (used as vmlinux.h)
-include/bpf/           libbpf headers, vendored (copied from upstream libbpf)
+include/
+  vmlinux_6.18.h       bundled kernel type definitions (copied to build/obj/vmlinux.h)
+  bpf/                 libbpf headers, vendored (copied from upstream libbpf)
 lib/                   libbpf shared and static libraries (prebuilt, not used by the build yet)
 export_btf.sh          copies /sys/kernel/btf/vmlinux to vmlinux.btf for shipping
 CMakeLists.txt         build and install rules
