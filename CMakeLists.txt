@@ -146,11 +146,22 @@ set_target_properties(bpf_so PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES ${INC_DIR})
 
 # --------------------------------------------------------------- bpftool
+# bpftool's Makefile names its LLVM tools as clang$(LLVM_VERSION),
+# llvm-strip$(LLVM_VERSION), ... . If the compiler is clang-NN (e.g. clang-18,
+# as on Ubuntu), use the matching -NN suffix so those tools are found.
+get_filename_component(_cc_name "${CMAKE_C_COMPILER}" NAME)
+if(_cc_name MATCHES "^clang-([0-9]+)$")
+  set(BPFTOOL_LLVM_VERSION "-${CMAKE_MATCH_1}")
+else()
+  set(BPFTOOL_LLVM_VERSION "")
+endif()
+
 # -DNFPROTO_NETDEV=5: the CentOS 7 (3.10) kernel headers predate that constant.
 add_custom_command(
   OUTPUT ${BPFTOOL_DIR}/bpftool
   COMMAND ${CMAKE_COMMAND} -E make_directory ${BPFTOOL_DIR}
   COMMAND ${MAKE_PROG} -C ${BPFTOOL_SRC} OUTPUT=${BPFTOOL_DIR}/
+          LLVM_VERSION=${BPFTOOL_LLVM_VERSION}
           EXTRA_CFLAGS=-DNFPROTO_NETDEV=5
   COMMENT "Building bpftool")
 add_custom_target(bpftool_build DEPENDS ${BPFTOOL_DIR}/bpftool)
