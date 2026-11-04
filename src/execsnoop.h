@@ -5,10 +5,10 @@
 #define FILENAME_LEN 128
 
 struct event {
-        int pid;
-        int ppid;
-        char comm[TASK_COMM_LEN];
-        char filename[FILENAME_LEN];
+  int pid;
+  int ppid;
+  char comm[TASK_COMM_LEN];
+  char filename[FILENAME_LEN];
 };
 
 #endif
