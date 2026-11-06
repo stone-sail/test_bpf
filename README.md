@@ -85,6 +85,16 @@ The system is read from `/etc/os-release` (`ID` and `ID_LIKE`).
 
 ## Runtime requirements
 
+Select the kernel event path with `--ktype` and the user event with `--utype`:
+
+- `--ktype origin` (default): reserved for the native perf implementation; it is not implemented yet and exits with a clear error.
+- `--ktype bpf`: use the BPF implementation.
+- `--utype tracepoint_sys_enter_execve` (default): attach to the `syscalls/sys_enter_execve` tracepoint.
+
+Example: `sudo ./build/bin/execsnoop --ktype bpf --utype tracepoint_sys_enter_execve`.
+
+`--btf /path/to/vmlinux.btf` optionally selects an explicit BTF file; otherwise the loader uses `/sys/kernel/btf/vmlinux`.
+
 - Root, or the BPF capabilities of your kernel.
 - Kernel 5.8 or newer: the program uses ring buffers.
 - BTF for CO-RE relocations. The program chooses it in this order:

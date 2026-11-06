@@ -99,6 +99,9 @@ endif()
 
 set(SRC_DIR     ${CMAKE_SOURCE_DIR}/src)
 set(INC_DIR     ${CMAKE_SOURCE_DIR}/include)   # vendored libbpf headers (bpf/*.h)
+set(ARGPARSE_DIR ${CMAKE_SOURCE_DIR}/third_party/argparse)
+set(UTHASH_DIR   ${CMAKE_SOURCE_DIR}/third_party/uthash/src)
+set(UTILS_DIR    ${CMAKE_SOURCE_DIR}/utils)
 set(OBJ_DIR     ${CMAKE_BINARY_DIR}/obj)
 set(LIB_DIR     ${CMAKE_BINARY_DIR}/lib)
 set(BIN_DIR     ${CMAKE_BINARY_DIR}/bin)
@@ -114,6 +117,7 @@ if(NOT EXISTS "${LIBBPF_SRC}/libbpf.h" OR NOT EXISTS "${BPFTOOL_SRC}/Makefile")
 endif()
 
 find_program(MAKE_PROG make REQUIRED)
+find_package(Threads REQUIRED)
 
 # Architecture name used by BPF code (__TARGET_ARCH_x86 / arm64).
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
@@ -212,11 +216,17 @@ add_custom_command(
 add_custom_target(skel_h DEPENDS ${OBJ_DIR}/execsnoop.skel.h)
 
 # ------------------------------------------------------- user-space loader
-add_executable(execsnoop ${SRC_DIR}/execsnoop.c ${OBJ_DIR}/execsnoop.skel.h)
+add_executable(execsnoop
+  ${SRC_DIR}/execsnoop.c
+  ${SRC_DIR}/tracepoint.c
+  ${UTILS_DIR}/uthash_map.c
+  ${UTILS_DIR}/thread_pool.c
+  ${ARGPARSE_DIR}/argparse.c
+  ${OBJ_DIR}/execsnoop.skel.h)
 set_source_files_properties(${OBJ_DIR}/execsnoop.skel.h PROPERTIES GENERATED TRUE)
-target_include_directories(execsnoop PRIVATE ${INC_DIR} ${OBJ_DIR} ${SRC_DIR})
+target_include_directories(execsnoop PRIVATE ${INC_DIR} ${OBJ_DIR} ${SRC_DIR} ${ARGPARSE_DIR} ${UTHASH_DIR} ${UTILS_DIR})
 target_compile_options(execsnoop PRIVATE -g -O2 -Wall)
-target_link_libraries(execsnoop PRIVATE bpf_so ${ELF_LIB} ${Z_LIB})
+target_link_libraries(execsnoop PRIVATE bpf_so ${ELF_LIB} ${Z_LIB} Threads::Threads)
 set_target_properties(execsnoop PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR}
   # Find libbpf next to the binary: build/lib in the build tree, and
@@ -224,6 +234,18 @@ set_target_properties(execsnoop PROPERTIES
   BUILD_RPATH "\$ORIGIN/../lib"
   INSTALL_RPATH "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
 add_dependencies(execsnoop skel_h libbpf_build)
+
+# ---------------------------------------------------------- unit tests
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(test_thread_pool
+    ${CMAKE_SOURCE_DIR}/tests/test_thread_pool.c
+    ${UTILS_DIR}/thread_pool.c)
+  target_include_directories(test_thread_pool PRIVATE ${UTILS_DIR})
+  target_compile_options(test_thread_pool PRIVATE -g -O2 -Wall)
+  target_link_libraries(test_thread_pool PRIVATE Threads::Threads)
+  add_test(NAME thread_pool COMMAND test_thread_pool)
+endif()
 
 # Resource directory of the clang that compiles the user-space code. Without it
 # clangd may not find stddef.h when it reads compile_commands.json.
